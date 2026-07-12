@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>遠隔カンペ</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
+    background: #111;
+    color: #fff;
+    overflow: hidden;
+  }
+  .screen { display: none; height: 100%; }
+  .screen.active { display: flex; }
+
+  /* ---------- モード選択 ---------- */
+  #modeSelect {
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+  }
+  #modeSelect h1 { font-size: 28px; margin-bottom: 8px; }
+  #modeSelect button {
+    width: 320px;
+    padding: 28px;
+    font-size: 24px;
+    font-weight: bold;
+    border: none;
+    border-radius: 16px;
+    cursor: pointer;
+    color: #fff;
+  }
+  #btnDisplayMode { background: #2e7d32; }
+  #btnCtrlMode { background: #1565c0; }
+  #modeSelect .hint { color: #999; font-size: 14px; text-align: center; line-height: 1.7; }
+
+  /* ---------- 表示用(スピーカー足元) ---------- */
+  #display {
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    background: #111;
+    transition: background 0.2s;
+  }
+  #display.bg-normal { background: #111; }
+  #display.bg-go     { background: #1b5e20; }
+  #display.bg-info   { background: #0d47a1; }
+  #display.bg-time   { background: #b8860b; }
+  #display.bg-urgent { animation: flash 0.7s steps(1) infinite; }
+  @keyframes flash {
+    0%   { background: #c62828; }
+    50%  { background: #7f0000; }
+  }
+  #msgText {
+    font-weight: 900;
+    text-align: center;
+    line-height: 1.2;
+    padding: 0 4vw;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+  }
+  #waitBox { text-align: center; }
+  #waitBox .code {
+    font-size: 15vw;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    color: #ffd54f;
+  }
+  #waitBox p { font-size: 22px; color: #ccc; margin-top: 16px; line-height: 1.8; }
+  #connBadge {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    font-size: 14px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: #333;
+    color: #aaa;
+  }
+  #connBadge.ok { background: #1b5e20; color: #a5d6a7; }
+  #connBadge.ng { background: #b71c1c; color: #ffcdd2; }
+  #fsBtn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    padding: 6px 14px;
+    font-size: 14px;
+    background: #333;
+    color: #ccc;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    opacity: 0.7;
+  }
+
+  /* ---------- 操作用(タイムキーパー) ---------- */
+  #ctrl {
+    flex-direction: column;
+    padding: 16px;
+    gap: 12px;
+    overflow-y: auto;
+  }
+  #ctrl .topbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  #ctrl .topbar input {
+    font-size: 22px;
+    padding: 8px 12px;
+    width: 130px;
+    border-radius: 8px;
+    border: 1px solid #555;
+    background: #222;
+    color: #ffd54f;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  #ctrl .topbar button {
+    font-size: 16px;
+    padding: 10px 18px;
+    border: none;
+    border-radius: 8px;
+    background: #1565c0;
+    color: #fff;
+    cursor: pointer;
+  }
+  #ctrlStatus { font-size: 15px; color: #aaa; }
+  #ctrlStatus.ok { color: #81c784; }
+  #ctrlStatus.ng { color: #e57373; }
+
+  #nowShowing {
+    background: #222;
+    border-radius: 12px;
+    padding: 10px 16px;
+    font-size: 15px;
+    color: #999;
+  }
+  #nowShowing b { color: #fff; font-size: 20px; margin-left: 8px; }
+
+  .btnGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+  }
+  .btnGrid button {
+    padding: 22px 8px;
+    font-size: 20px;
+    font-weight: bold;
+    border: none;
+    border-radius: 12px;
+    color: #fff;
+    cursor: pointer;
+  }
+  .btnGrid button:active { transform: scale(0.96); }
+  .b-go     { background: #2e7d32; }
+  .b-info   { background: #1565c0; }
+  .b-time   { background: #b8860b; }
+  .b-urgent { background: #c62828; }
+  .b-clear  { background: #424242; }
+
+  .freeRow { display: flex; gap: 8px; flex-wrap: wrap; }
+  .freeRow input[type=text] {
+    flex: 1;
+    min-width: 200px;
+    font-size: 20px;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid #555;
+    background: #222;
+    color: #fff;
+  }
+  .freeRow button {
+    font-size: 17px;
+    font-weight: bold;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    cursor: pointer;
+  }
+  #sendFree { background: #1565c0; }
+  #sendFreeUrgent { background: #c62828; }
+  .sectionLabel { font-size: 13px; color: #888; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<!-- モード選択 -->
+<div id="modeSelect" class="screen active">
+  <h1>遠隔カンペ</h1>
+  <button id="btnDisplayMode">表示用<br><span style="font-size:15px;font-weight:normal">(スピーカー足元のPC)</span></button>
+  <button id="btnCtrlMode">操作用<br><span style="font-size:15px;font-weight:normal">(タイムキーパーのPC)</span></button>
+  <p class="hint">両方のPCでこの同じファイルを開き、<br>表示用に出る4桁コードを操作用に入力してください。</p>
+</div>
+
+<!-- 表示用 -->
+<div id="display" class="screen bg-normal">
+  <span id="connBadge">未接続</span>
+  <button id="fsBtn">全画面</button>
+  <div id="waitBox">
+    <div>接続コード</div>
+    <div class="code" id="roomCode">----</div>
+    <p>タイムキーパーのPCでこのコードを入力してください。<br>接続後、このボタン(右上)で全画面にしてください。</p>
+  </div>
+  <div id="msgText" style="display:none"></div>
+</div>
+
+<!-- 操作用 -->
+<div id="ctrl" class="screen">
+  <div class="topbar">
+    <label>接続コード:</label>
+    <input id="codeInput" maxlength="4" placeholder="ABCD">
+    <button id="connectBtn">接続</button>
+    <span id="ctrlStatus">未接続</span>
+  </div>
+  <div id="nowShowing">現在の表示:<b id="nowText">—</b></div>
+
+  <div class="sectionLabel">進行指示</div>
+  <div class="btnGrid">
+    <button class="b-go"     data-style="go"     data-text="GO">GO</button>
+    <button class="b-go"     data-style="go"     data-text="のばして">のばして</button>
+    <button class="b-info"   data-style="info"   data-text="少し早口で">少し早口で</button>
+    <button class="b-urgent" data-style="urgent" data-text="巻いて">巻いて</button>
+    <button class="b-urgent" data-style="urgent" data-text="まとめて">まとめて</button>
+    <button class="b-clear"  data-style="normal" data-text="">クリア(消す)</button>
+  </div>
+
+  <div class="sectionLabel">経過時間</div>
+  <div class="btnGrid">
+    <button class="b-time" data-style="time" data-text="5分経過">5分経過</button>
+    <button class="b-time" data-style="time" data-text="10分経過">10分経過</button>
+    <button class="b-time" data-style="time" data-text="15分経過">15分経過</button>
+    <button class="b-urgent" data-style="urgent" data-text="残り1分">残り1分</button>
+    <button class="b-urgent" data-style="urgent" data-text="時間です">時間です</button>
+  </div>
+
+  <div class="sectionLabel">自由入力(Enterで通常送信)</div>
+  <div class="freeRow">
+    <input type="text" id="freeText" placeholder="自由メッセージ">
+    <button id="sendFree">送信</button>
+    <button id="sendFreeUrgent">緊急(点滅)で送信</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  const PREFIX = "tedx-kanpe-";
+  let peer = null;
+  let conn = null;
+  let role = null;
+  let lastMsg = null;
+  let hbTimer = null;
+
+  const $ = (id) => document.getElementById(id);
+  const show = (id) => {
+    document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+    $(id).classList.add("active");
+  };
+
+  /* ============ 表示用 ============ */
+  function startDisplay() {
+    role = "display";
+    show("display");
+    const code = randomCode();
+    $("roomCode").textContent = code;
+    peer = new Peer(PREFIX + code, { debug: 1 });
+
+    peer.on("error", (e) => {
+      if (e.type === "unavailable-id") {
+        // コード衝突 → 再生成
+        peer.destroy();
+        startDisplay();
+      } else {
+        setBadge("エラー: " + e.type, "ng");
+      }
+    });
+
+    peer.on("connection", (c) => {
+      if (conn) { try { conn.close(); } catch (_) {} }
+      conn = c;
+      c.on("open", () => setBadge("接続中", "ok"));
+      c.on("data", (d) => {
+        if (d.type === "msg") {
+          renderMsg(d.text, d.style);
+          c.send({ type: "ack", text: d.text === "" ? "(クリア)" : d.text });
+        } else if (d.type === "ping") {
+          c.send({ type: "pong" });
+        }
+      });
+      c.on("close", () => setBadge("切断されました", "ng"));
+      c.on("error", () => setBadge("通信エラー", "ng"));
+    });
+  }
+
+  function renderMsg(text, style) {
+    const disp = $("display");
+    $("waitBox").style.display = "none";
+    const el = $("msgText");
+    el.style.display = "block";
+    disp.className = "screen active bg-" + (style || "normal");
+    if (text === "") {
+      el.textContent = "";
+      disp.className = "screen active bg-normal";
+    } else {
+      el.textContent = text;
+      fitText(el, text);
+    }
+  }
+
+  function fitText(el, text) {
+    // 文字数に応じてフォントサイズを自動調整
+    const len = [...text].length;
+    let vw;
+    if (len <= 3) vw = 28;
+    else if (len <= 5) vw = 20;
+    else if (len <= 8) vw = 14;
+    else if (len <= 14) vw = 10;
+    else vw = 7;
+    el.style.fontSize = vw + "vw";
+  }
+
+  function setBadge(text, cls) {
+    const b = $("connBadge");
+    b.textContent = text;
+    b.className = cls || "";
+  }
+
+  $("fsBtn").addEventListener("click", () => {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+    else document.exitFullscreen();
+  });
+
+  /* ============ 操作用 ============ */
+  function startCtrl() {
+    role = "ctrl";
+    show("ctrl");
+    peer = new Peer({ debug: 1 });
+    const saved = localStorage.getItem("kanpeCode");
+    if (saved) $("codeInput").value = saved;
+    peer.on("error", (e) => {
+      if (e.type === "peer-unavailable") setCtrlStatus("コードが見つかりません", "ng");
+      else setCtrlStatus("エラー: " + e.type, "ng");
+    });
+  }
+
+  function connect() {
+    const code = $("codeInput").value.trim().toUpperCase();
+    if (code.length !== 4) { setCtrlStatus("4桁のコードを入力してください", "ng"); return; }
+    localStorage.setItem("kanpeCode", code);
+    if (conn) { try { conn.close(); } catch (_) {} }
+    setCtrlStatus("接続中...", "");
+    conn = peer.connect(PREFIX + code, { reliable: true });
+
+    conn.on("open", () => {
+      setCtrlStatus("接続OK", "ok");
+      startHeartbeat();
+      if (lastMsg) conn.send(lastMsg); // 再接続時に直前の表示を復元
+    });
+    conn.on("data", (d) => {
+      if (d.type === "ack") $("nowText").textContent = d.text;
+      if (d.type === "pong") pongReceived = true;
+    });
+    conn.on("close", () => { setCtrlStatus("切断 — 再接続してください", "ng"); stopHeartbeat(); });
+    conn.on("error", () => { setCtrlStatus("通信エラー", "ng"); stopHeartbeat(); });
+  }
+
+  let pongReceived = true;
+  function startHeartbeat() {
+    stopHeartbeat();
+    hbTimer = setInterval(() => {
+      if (!conn || !conn.open) return;
+      if (!pongReceived) setCtrlStatus("応答なし — 接続を確認", "ng");
+      else setCtrlStatus("接続OK", "ok");
+      pongReceived = false;
+      conn.send({ type: "ping" });
+    }, 4000);
+  }
+  function stopHeartbeat() { if (hbTimer) clearInterval(hbTimer); hbTimer = null; }
+
+  function sendMsg(text, style) {
+    if (!conn || !conn.open) { setCtrlStatus("未接続です — 先に接続してください", "ng"); return; }
+    lastMsg = { type: "msg", text, style };
+    conn.send(lastMsg);
+  }
+
+  function setCtrlStatus(text, cls) {
+    const s = $("ctrlStatus");
+    s.textContent = text;
+    s.className = cls || "";
+  }
+
+  /* ============ イベント ============ */
+  $("btnDisplayMode").addEventListener("click", startDisplay);
+  $("btnCtrlMode").addEventListener("click", startCtrl);
+  $("connectBtn").addEventListener("click", connect);
+  $("codeInput").addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
+
+  document.querySelectorAll(".btnGrid button").forEach(b => {
+    b.addEventListener("click", () => sendMsg(b.dataset.text, b.dataset.style));
+  });
+  $("sendFree").addEventListener("click", () => sendFreeMsg("info"));
+  $("sendFreeUrgent").addEventListener("click", () => sendFreeMsg("urgent"));
+  $("freeText").addEventListener("keydown", (e) => { if (e.key === "Enter") sendFreeMsg("info"); });
+  function sendFreeMsg(style) {
+    const t = $("freeText").value.trim();
+    if (!t) return;
+    sendMsg(t, style);
+    $("freeText").value = "";
+    $("freeText").focus();
+  }
+
+  function randomCode() {
+    const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // 紛らわしい文字を除外
+    let s = "";
+    for (let i = 0; i < 4; i++) s += chars[Math.floor(Math.random() * chars.length)];
+    return s;
+  }
+})();
+</script>
+</body>
+</html>
