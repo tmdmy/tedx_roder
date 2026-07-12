@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>遠隔カンペ</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
@@ -67,7 +68,7 @@
   }
   #waitBox { text-align: center; }
   #waitBox .code {
-    font-size: 15vw;
+    font-size: 12vw;
     font-weight: 900;
     letter-spacing: 0.1em;
     color: #ffd54f;
@@ -110,7 +111,7 @@
   #ctrl .topbar input {
     font-size: 22px;
     padding: 8px 12px;
-    width: 130px;
+    width: 160px;
     border-radius: 8px;
     border: 1px solid #555;
     background: #222;
@@ -184,26 +185,39 @@
   #sendFree { background: #1565c0; }
   #sendFreeUrgent { background: #c62828; }
   .sectionLabel { font-size: 13px; color: #888; margin-top: 4px; }
+  #configError {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: #111;
+    color: #ef9a9a;
+    padding: 40px;
+    font-size: 20px;
+    line-height: 2;
+    z-index: 99;
+  }
 </style>
 </head>
 <body>
+
+<div id="configError">Firebaseの設定がまだ入っていません。<br>kanpe.html内の firebaseConfig にFirebaseコンソールの設定値を貼り付けてください。</div>
 
 <!-- モード選択 -->
 <div id="modeSelect" class="screen active">
   <h1>遠隔カンペ</h1>
   <button id="btnDisplayMode">表示用<br><span style="font-size:15px;font-weight:normal">(スピーカー足元のPC)</span></button>
   <button id="btnCtrlMode">操作用<br><span style="font-size:15px;font-weight:normal">(タイムキーパーのPC)</span></button>
-  <p class="hint">両方のPCでこの同じファイルを開き、<br>表示用に出る4桁コードを操作用に入力してください。</p>
+  <p class="hint">両PCで同じルーム名を使えばつながります。<br>URLに ?mode=display&room=TEDX2026 を付ければこの画面をスキップできます。</p>
 </div>
 
 <!-- 表示用 -->
 <div id="display" class="screen bg-normal">
-  <span id="connBadge">未接続</span>
+  <span id="connBadge">接続中...</span>
   <button id="fsBtn">全画面</button>
   <div id="waitBox">
-    <div>接続コード</div>
+    <div>ルーム名</div>
     <div class="code" id="roomCode">----</div>
-    <p>タイムキーパーのPCでこのコードを入力してください。<br>接続後、このボタン(右上)で全画面にしてください。</p>
+    <p>タイムキーパー側で同じルーム名に接続してください。<br>右上のボタンで全画面にできます。</p>
   </div>
   <div id="msgText" style="display:none"></div>
 </div>
@@ -211,8 +225,8 @@
 <!-- 操作用 -->
 <div id="ctrl" class="screen">
   <div class="topbar">
-    <label>接続コード:</label>
-    <input id="codeInput" maxlength="24" placeholder="ABCD">
+    <label>ルーム名:</label>
+    <input id="codeInput" maxlength="24" placeholder="TEDX2026">
     <button id="connectBtn">接続</button>
     <span id="ctrlStatus">未接続</span>
   </div>
@@ -247,24 +261,21 @@
 
 <script>
 (function () {
-  const PREFIX = "tedx-kanpe-";
-  // STUNに加え、無料TURN中継サーバーを指定(直接P2Pできないネットワークでも接続可能に)
-  const PEER_OPTS = {
-    debug: 1,
-    config: {
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
-        { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
-        { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
-      ]
-    }
+  const firebaseConfig = {
+    databaseURL: "https://tedxutsukubakanpe-default-rtdb.asia-southeast1.firebasedatabase.app"
   };
-  let peer = null;
-  let conn = null;
+
+  if (!firebaseConfig) {
+    document.getElementById("configError").style.display = "block";
+    return;
+  }
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  let room = null;
   let role = null;
-  let lastMsg = null;
+  let lastPeerSeen = 0;   // 相手側ハートビートを最後に受信した時刻(ローカル時計)
+  let watchTimer = null;
   let hbTimer = null;
 
   const $ = (id) => document.getElementById(id);
@@ -272,43 +283,45 @@
     document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
     $(id).classList.add("active");
   };
+  const roomRef = (path) => db.ref("rooms/" + room + "/" + path);
+
+  /* ============ 共通: 死活監視 ============ */
+  // 自分のハートビートを3秒ごとに書き込み、相手のハートビート更新イベントで生存確認
+  function startPresence(me, other, onStatus) {
+    hbTimer = setInterval(() => {
+      roomRef("presence/" + me).set(firebase.database.ServerValue.TIMESTAMP);
+    }, 3000);
+    roomRef("presence/" + me).set(firebase.database.ServerValue.TIMESTAMP);
+    roomRef("presence/" + me).onDisconnect().remove();
+
+    roomRef("presence/" + other).on("value", (snap) => {
+      if (snap.val() !== null) lastPeerSeen = Date.now();
+    });
+    watchTimer = setInterval(() => {
+      onStatus(Date.now() - lastPeerSeen < 9000);
+    }, 2000);
+
+    db.ref(".info/connected").on("value", (snap) => {
+      if (!snap.val()) onStatus(false, true);
+    });
+  }
 
   /* ============ 表示用 ============ */
-  function startDisplay(fixedCode) {
+  function startDisplay(roomName) {
     role = "display";
+    room = roomName;
     show("display");
-    const code = fixedCode || randomCode();
-    $("roomCode").textContent = code;
-    peer = new Peer(PREFIX + code, PEER_OPTS);
+    $("roomCode").textContent = room;
 
-    peer.on("error", (e) => {
-      if (e.type === "unavailable-id") {
-        if (fixedCode) {
-          setBadge("このルーム名は使用中です — URLのroomを変えてください", "ng");
-        } else {
-          // コード衝突 → 再生成
-          peer.destroy();
-          startDisplay();
-        }
-      } else {
-        setBadge("エラー: " + e.type, "ng");
-      }
+    roomRef("current").on("value", (snap) => {
+      const d = snap.val();
+      if (d && typeof d.text === "string") renderMsg(d.text, d.style);
     });
 
-    peer.on("connection", (c) => {
-      if (conn) { try { conn.close(); } catch (_) {} }
-      conn = c;
-      c.on("open", () => setBadge("接続中", "ok"));
-      c.on("data", (d) => {
-        if (d.type === "msg") {
-          renderMsg(d.text, d.style);
-          c.send({ type: "ack", text: d.text === "" ? "(クリア)" : d.text });
-        } else if (d.type === "ping") {
-          c.send({ type: "pong" });
-        }
-      });
-      c.on("close", () => setBadge("切断されました", "ng"));
-      c.on("error", () => setBadge("通信エラー", "ng"));
+    startPresence("display", "ctrl", (alive, offline) => {
+      if (offline) setBadge("ネット接続なし", "ng");
+      else if (alive) setBadge("操作側と接続中", "ok");
+      else setBadge("操作側の応答なし", "ng");
     });
   }
 
@@ -328,7 +341,6 @@
   }
 
   function fitText(el, text) {
-    // 文字数に応じてフォントサイズを自動調整
     const len = [...text].length;
     let vw;
     if (len <= 3) vw = 28;
@@ -351,61 +363,52 @@
   });
 
   /* ============ 操作用 ============ */
-  function startCtrl(fixedCode) {
+  function startCtrl(roomName) {
     role = "ctrl";
     show("ctrl");
-    peer = new Peer(PEER_OPTS);
-    if (fixedCode) {
-      $("codeInput").value = fixedCode;
+    if (roomName) {
+      $("codeInput").value = roomName;
+      connect();
     } else {
-      const saved = localStorage.getItem("kanpeCode");
+      const saved = localStorage.getItem("kanpeRoom");
       if (saved) $("codeInput").value = saved;
     }
-    peer.on("open", () => { if (fixedCode) connect(); }); // URL指定時は自動接続
-    peer.on("error", (e) => {
-      if (e.type === "peer-unavailable") setCtrlStatus("コードが見つかりません(表示用が先に開いているか確認)", "ng");
-      else setCtrlStatus("エラー: " + e.type, "ng");
-    });
   }
 
   function connect() {
-    const code = $("codeInput").value.trim().toUpperCase();
-    if (!/^[A-Z0-9]{4,24}$/.test(code)) { setCtrlStatus("コードは英数字4文字以上で入力してください", "ng"); return; }
-    localStorage.setItem("kanpeCode", code);
-    if (conn) { try { conn.close(); } catch (_) {} }
+    const r = $("codeInput").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (r.length < 2) { setCtrlStatus("ルーム名は英数字2文字以上", "ng"); return; }
+    localStorage.setItem("kanpeRoom", r);
+
+    // 前のルームの監視を解除
+    if (room) {
+      roomRef("current").off();
+      roomRef("presence/display").off();
+    }
+    if (hbTimer) clearInterval(hbTimer);
+    if (watchTimer) clearInterval(watchTimer);
+
+    room = r;
     setCtrlStatus("接続中...", "");
-    conn = peer.connect(PREFIX + code, { reliable: true });
 
-    conn.on("open", () => {
-      setCtrlStatus("接続OK", "ok");
-      startHeartbeat();
-      if (lastMsg) conn.send(lastMsg); // 再接続時に直前の表示を復元
+    roomRef("current").on("value", (snap) => {
+      const d = snap.val();
+      if (d && typeof d.text === "string") {
+        $("nowText").textContent = d.text === "" ? "(クリア)" : d.text;
+      }
     });
-    conn.on("data", (d) => {
-      if (d.type === "ack") $("nowText").textContent = d.text;
-      if (d.type === "pong") pongReceived = true;
-    });
-    conn.on("close", () => { setCtrlStatus("切断 — 再接続してください", "ng"); stopHeartbeat(); });
-    conn.on("error", () => { setCtrlStatus("通信エラー", "ng"); stopHeartbeat(); });
-  }
 
-  let pongReceived = true;
-  function startHeartbeat() {
-    stopHeartbeat();
-    hbTimer = setInterval(() => {
-      if (!conn || !conn.open) return;
-      if (!pongReceived) setCtrlStatus("応答なし — 接続を確認", "ng");
-      else setCtrlStatus("接続OK", "ok");
-      pongReceived = false;
-      conn.send({ type: "ping" });
-    }, 4000);
+    startPresence("ctrl", "display", (alive, offline) => {
+      if (offline) setCtrlStatus("ネット接続なし", "ng");
+      else if (alive) setCtrlStatus("表示側と接続OK", "ok");
+      else setCtrlStatus("表示側が見つかりません(表示側を開いてください)", "ng");
+    });
   }
-  function stopHeartbeat() { if (hbTimer) clearInterval(hbTimer); hbTimer = null; }
 
   function sendMsg(text, style) {
-    if (!conn || !conn.open) { setCtrlStatus("未接続です — 先に接続してください", "ng"); return; }
-    lastMsg = { type: "msg", text, style };
-    conn.send(lastMsg);
+    if (!room) { setCtrlStatus("先にルームへ接続してください", "ng"); return; }
+    roomRef("current").set({ text, style, ts: firebase.database.ServerValue.TIMESTAMP })
+      .catch(() => setCtrlStatus("送信失敗 — ネットとFirebaseルールを確認", "ng"));
   }
 
   function setCtrlStatus(text, cls) {
@@ -415,21 +418,18 @@
   }
 
   /* ============ イベント ============ */
-  $("btnDisplayMode").addEventListener("click", () => startDisplay());
+  $("btnDisplayMode").addEventListener("click", () => startDisplay(promptRoom()));
   $("btnCtrlMode").addEventListener("click", () => startCtrl());
-
-  // URLパラメータで自動起動: ?mode=display&room=TEDX2026 / ?mode=ctrl&room=TEDX2026
-  (function autoStart() {
-    const p = new URLSearchParams(location.search);
-    const mode = (p.get("mode") || "").toLowerCase();
-    let room = (p.get("room") || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (room && !/^[A-Z0-9]{4,24}$/.test(room)) room = "";
-    if (mode === "display") startDisplay(room || undefined);
-    else if (mode === "ctrl" && room) startCtrl(room);
-    else if (mode === "ctrl") startCtrl();
-  })();
   $("connectBtn").addEventListener("click", connect);
   $("codeInput").addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
+
+  function promptRoom() {
+    const saved = localStorage.getItem("kanpeRoom") || "TEDX2026";
+    const r = (prompt("ルーム名(操作側と同じにする):", saved) || saved)
+      .trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    localStorage.setItem("kanpeRoom", r);
+    return r || "TEDX2026";
+  }
 
   document.querySelectorAll(".btnGrid button").forEach(b => {
     b.addEventListener("click", () => sendMsg(b.dataset.text, b.dataset.style));
@@ -445,12 +445,14 @@
     $("freeText").focus();
   }
 
-  function randomCode() {
-    const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // 紛らわしい文字を除外
-    let s = "";
-    for (let i = 0; i < 4; i++) s += chars[Math.floor(Math.random() * chars.length)];
-    return s;
-  }
+  // URLパラメータで自動起動: ?mode=display&room=TEDX2026 / ?mode=ctrl&room=TEDX2026
+  (function autoStart() {
+    const p = new URLSearchParams(location.search);
+    const mode = (p.get("mode") || "").toLowerCase();
+    const r = (p.get("room") || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (mode === "display") startDisplay(r || "TEDX2026");
+    else if (mode === "ctrl") startCtrl(r || null);
+  })();
 })();
 </script>
 </body>
