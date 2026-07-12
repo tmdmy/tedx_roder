@@ -212,7 +212,7 @@
 <div id="ctrl" class="screen">
   <div class="topbar">
     <label>接続コード:</label>
-    <input id="codeInput" maxlength="4" placeholder="ABCD">
+    <input id="codeInput" maxlength="24" placeholder="ABCD">
     <button id="connectBtn">接続</button>
     <span id="ctrlStatus">未接続</span>
   </div>
@@ -261,18 +261,22 @@
   };
 
   /* ============ 表示用 ============ */
-  function startDisplay() {
+  function startDisplay(fixedCode) {
     role = "display";
     show("display");
-    const code = randomCode();
+    const code = fixedCode || randomCode();
     $("roomCode").textContent = code;
     peer = new Peer(PREFIX + code, { debug: 1 });
 
     peer.on("error", (e) => {
       if (e.type === "unavailable-id") {
-        // コード衝突 → 再生成
-        peer.destroy();
-        startDisplay();
+        if (fixedCode) {
+          setBadge("このルーム名は使用中です — URLのroomを変えてください", "ng");
+        } else {
+          // コード衝突 → 再生成
+          peer.destroy();
+          startDisplay();
+        }
       } else {
         setBadge("エラー: " + e.type, "ng");
       }
@@ -334,21 +338,26 @@
   });
 
   /* ============ 操作用 ============ */
-  function startCtrl() {
+  function startCtrl(fixedCode) {
     role = "ctrl";
     show("ctrl");
     peer = new Peer({ debug: 1 });
-    const saved = localStorage.getItem("kanpeCode");
-    if (saved) $("codeInput").value = saved;
+    if (fixedCode) {
+      $("codeInput").value = fixedCode;
+    } else {
+      const saved = localStorage.getItem("kanpeCode");
+      if (saved) $("codeInput").value = saved;
+    }
+    peer.on("open", () => { if (fixedCode) connect(); }); // URL指定時は自動接続
     peer.on("error", (e) => {
-      if (e.type === "peer-unavailable") setCtrlStatus("コードが見つかりません", "ng");
+      if (e.type === "peer-unavailable") setCtrlStatus("コードが見つかりません(表示用が先に開いているか確認)", "ng");
       else setCtrlStatus("エラー: " + e.type, "ng");
     });
   }
 
   function connect() {
     const code = $("codeInput").value.trim().toUpperCase();
-    if (code.length !== 4) { setCtrlStatus("4桁のコードを入力してください", "ng"); return; }
+    if (!/^[A-Z0-9]{4,24}$/.test(code)) { setCtrlStatus("コードは英数字4文字以上で入力してください", "ng"); return; }
     localStorage.setItem("kanpeCode", code);
     if (conn) { try { conn.close(); } catch (_) {} }
     setCtrlStatus("接続中...", "");
@@ -393,8 +402,19 @@
   }
 
   /* ============ イベント ============ */
-  $("btnDisplayMode").addEventListener("click", startDisplay);
-  $("btnCtrlMode").addEventListener("click", startCtrl);
+  $("btnDisplayMode").addEventListener("click", () => startDisplay());
+  $("btnCtrlMode").addEventListener("click", () => startCtrl());
+
+  // URLパラメータで自動起動: ?mode=display&room=TEDX2026 / ?mode=ctrl&room=TEDX2026
+  (function autoStart() {
+    const p = new URLSearchParams(location.search);
+    const mode = (p.get("mode") || "").toLowerCase();
+    let room = (p.get("room") || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (room && !/^[A-Z0-9]{4,24}$/.test(room)) room = "";
+    if (mode === "display") startDisplay(room || undefined);
+    else if (mode === "ctrl" && room) startCtrl(room);
+    else if (mode === "ctrl") startCtrl();
+  })();
   $("connectBtn").addEventListener("click", connect);
   $("codeInput").addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
 
