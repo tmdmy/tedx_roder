@@ -248,6 +248,19 @@
 <script>
 (function () {
   const PREFIX = "tedx-kanpe-";
+  // STUNに加え、無料TURN中継サーバーを指定(直接P2Pできないネットワークでも接続可能に)
+  const PEER_OPTS = {
+    debug: 1,
+    config: {
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+        { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+        { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
+      ]
+    }
+  };
   let peer = null;
   let conn = null;
   let role = null;
@@ -266,7 +279,7 @@
     show("display");
     const code = fixedCode || randomCode();
     $("roomCode").textContent = code;
-    peer = new Peer(PREFIX + code, { debug: 1 });
+    peer = new Peer(PREFIX + code, PEER_OPTS);
 
     peer.on("error", (e) => {
       if (e.type === "unavailable-id") {
@@ -341,7 +354,7 @@
   function startCtrl(fixedCode) {
     role = "ctrl";
     show("ctrl");
-    peer = new Peer({ debug: 1 });
+    peer = new Peer(PEER_OPTS);
     if (fixedCode) {
       $("codeInput").value = fixedCode;
     } else {
