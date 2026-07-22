@@ -49,14 +49,10 @@
     background: #111;
     transition: background 0.2s;
   }
-  #display.bg-normal { background: #111; }
-  #display.bg-go     { background: #1b5e20; }
-  #display.bg-info   { background: #0d47a1; }
-  #display.bg-time   { background: #b8860b; }
-  #display.bg-urgent { animation: flash 0.7s steps(1) infinite; }
+  #display.blink { animation: flash 0.7s steps(1) infinite; }
   @keyframes flash {
-    0%   { background: #c62828; }
-    50%  { background: #7f0000; }
+    0%   { background: var(--bc, #c62828); }
+    50%  { background: #1a1a1a; }
   }
   #msgText {
     font-weight: 900;
@@ -234,21 +230,24 @@
 
   <div class="sectionLabel">進行指示</div>
   <div class="btnGrid">
-    <button class="b-go"     data-style="go"     data-text="GO">GO</button>
-    <button class="b-go"     data-style="go"     data-text="のばして">のばして</button>
-    <button class="b-info"   data-style="info"   data-text="少し早口で">少し早口で</button>
-    <button class="b-urgent" data-style="urgent" data-text="巻いて">巻いて</button>
-    <button class="b-urgent" data-style="urgent" data-text="まとめて">まとめて</button>
-    <button class="b-clear"  data-style="normal" data-text="">クリア(消す)</button>
+    <button style="background:#cc0000" data-color="#cc0000" data-text="GO">GO</button>
+    <button style="background:#f0a000" data-color="#f0a000" data-text="OK">OK</button>
+    <button style="background:#f0a000" data-color="#f0a000" data-text="次行って">次行って</button>
+    <button style="background:#f0a000" data-color="#f0a000" data-text="休憩にしてOK">休憩にしてOK</button>
+    <button style="background:#1a1aff" data-color="#1a1aff" data-text="巻いて">巻いて</button>
+    <button style="background:#1a1aff" data-color="#1a1aff" data-text="少し早口で">少し早口で</button>
+    <button style="background:#38761d" data-color="#38761d" data-text="のばして">のばして</button>
+    <button style="background:#424242" data-text="">クリア(消す)</button>
   </div>
 
-  <div class="sectionLabel">経過時間</div>
+  <div class="sectionLabel">時間</div>
   <div class="btnGrid">
-    <button class="b-time" data-style="time" data-text="5分経過">5分経過</button>
-    <button class="b-time" data-style="time" data-text="10分経過">10分経過</button>
-    <button class="b-time" data-style="time" data-text="15分経過">15分経過</button>
-    <button class="b-urgent" data-style="urgent" data-text="残り1分">残り1分</button>
-    <button class="b-urgent" data-style="urgent" data-text="時間です">時間です</button>
+    <button style="background:#85200c" data-color="#85200c" data-text="10分経過">10分経過</button>
+    <button style="background:#85200c" data-color="#85200c" data-text="15分経過">15分経過</button>
+    <button style="background:#4a86e8" data-color="#4a86e8" data-text="残り5分">残り5分</button>
+    <button style="background:#4a86e8" data-color="#4a86e8" data-text="残り3分">残り3分</button>
+    <button style="background:#4a86e8" data-color="#4a86e8" data-text="残り2分">残り2分</button>
+    <button style="background:#073763" data-color="#073763" data-text="残り1分">残り1分</button>
   </div>
 
   <div class="sectionLabel">自由入力(Enterで通常送信)</div>
@@ -315,7 +314,7 @@
 
     roomRef("current").on("value", (snap) => {
       const d = snap.val();
-      if (d && typeof d.text === "string") renderMsg(d.text, d.style);
+      if (d && typeof d.text === "string") renderMsg(d.text, d.color, !!d.blink);
     });
 
     startPresence("display", "ctrl", (alive, offline) => {
@@ -325,18 +324,23 @@
     });
   }
 
-  function renderMsg(text, style) {
+  function renderMsg(text, color, blink) {
     const disp = $("display");
     $("waitBox").style.display = "none";
     const el = $("msgText");
     el.style.display = "block";
-    disp.className = "screen active bg-" + (style || "normal");
+    disp.classList.remove("blink");
     if (text === "") {
       el.textContent = "";
-      disp.className = "screen active bg-normal";
+      disp.style.background = "#111";
     } else {
       el.textContent = text;
       fitText(el, text);
+      disp.style.background = color || "#111";
+      if (blink) {
+        disp.style.setProperty("--bc", color || "#c62828");
+        disp.classList.add("blink");
+      }
     }
   }
 
@@ -405,9 +409,9 @@
     });
   }
 
-  function sendMsg(text, style) {
+  function sendMsg(text, color, blink) {
     if (!room) { setCtrlStatus("先にルームへ接続してください", "ng"); return; }
-    roomRef("current").set({ text, style, ts: firebase.database.ServerValue.TIMESTAMP })
+    roomRef("current").set({ text, color: color || null, blink: !!blink, ts: firebase.database.ServerValue.TIMESTAMP })
       .catch(() => setCtrlStatus("送信失敗 — ネットとFirebaseルールを確認", "ng"));
   }
 
@@ -432,15 +436,15 @@
   }
 
   document.querySelectorAll(".btnGrid button").forEach(b => {
-    b.addEventListener("click", () => sendMsg(b.dataset.text, b.dataset.style));
+    b.addEventListener("click", () => sendMsg(b.dataset.text, b.dataset.color || null, b.dataset.blink === "1"));
   });
-  $("sendFree").addEventListener("click", () => sendFreeMsg("info"));
-  $("sendFreeUrgent").addEventListener("click", () => sendFreeMsg("urgent"));
-  $("freeText").addEventListener("keydown", (e) => { if (e.key === "Enter") sendFreeMsg("info"); });
-  function sendFreeMsg(style) {
+  $("sendFree").addEventListener("click", () => sendFreeMsg(false));
+  $("sendFreeUrgent").addEventListener("click", () => sendFreeMsg(true));
+  $("freeText").addEventListener("keydown", (e) => { if (e.key === "Enter") sendFreeMsg(false); });
+  function sendFreeMsg(urgent) {
     const t = $("freeText").value.trim();
     if (!t) return;
-    sendMsg(t, style);
+    sendMsg(t, urgent ? "#cc0000" : "#1565c0", urgent);
     $("freeText").value = "";
     $("freeText").focus();
   }
