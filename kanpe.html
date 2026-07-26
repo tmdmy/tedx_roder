@@ -316,7 +316,7 @@
 
     roomRef("current").on("value", (snap) => {
       const d = snap.val();
-      if (d && typeof d.text === "string") renderMsg(d.text, d.color, !!d.blink);
+      if (d && typeof d.text === "string") renderMsg(d.text, d.color, !!d.blink, !!d.fixed);
     });
 
     startPresence("display", "ctrl", (alive, offline) => {
@@ -326,7 +326,7 @@
     });
   }
 
-  function renderMsg(text, color, blink) {
+  function renderMsg(text, color, blink, fixed) {
     const disp = $("display");
     $("waitBox").style.display = "none";
     const el = $("msgText");
@@ -337,7 +337,7 @@
       disp.style.background = "#111";
     } else {
       el.textContent = text;
-      fitText(el, text);
+      fitText(el, text, fixed);
       disp.style.background = color || "#111";
       if (blink) {
         disp.style.setProperty("--bc", color || "#cc0000");
@@ -346,8 +346,18 @@
     }
   }
 
-  function fitText(el, text) {
-    // 長文は自動で2〜4行に折り返し、行数に応じて最大の文字サイズを保つ
+  function fitText(el, text, oneLine) {
+    if (oneLine) {
+      // 定型ボタン: 必ず1行のまま、画面幅いっぱいの最大サイズに(実測でフィット)
+      el.style.whiteSpace = "nowrap";
+      el.style.fontSize = "32vw";
+      const avail = document.documentElement.clientWidth * 0.96;
+      const w = el.scrollWidth;
+      if (w > avail) el.style.fontSize = (32 * avail / w) + "vw";
+      return;
+    }
+    // 自由入力: 2〜4行に折り返して大きさを確保
+    el.style.whiteSpace = "normal";
     const len = [...text].length;
     let lines;
     if (len <= 5) lines = 1;
@@ -417,9 +427,9 @@
     });
   }
 
-  function sendMsg(text, color, blink) {
+  function sendMsg(text, color, blink, fixed) {
     if (!room) { setCtrlStatus("先にルームへ接続してください", "ng"); return; }
-    roomRef("current").set({ text, color: color || null, blink: !!blink, ts: firebase.database.ServerValue.TIMESTAMP })
+    roomRef("current").set({ text, color: color || null, blink: !!blink, fixed: !!fixed, ts: firebase.database.ServerValue.TIMESTAMP })
       .catch(() => setCtrlStatus("送信失敗 — ネットとFirebaseルールを確認", "ng"));
   }
 
@@ -444,7 +454,7 @@
   }
 
   document.querySelectorAll(".btnGrid button").forEach(b => {
-    b.addEventListener("click", () => sendMsg(b.dataset.text, b.dataset.color || null, b.dataset.blink === "1"));
+    b.addEventListener("click", () => sendMsg(b.dataset.text, b.dataset.color || null, b.dataset.blink === "1", true));
   });
   $("sendFree").addEventListener("click", () => sendFreeMsg(false));
   $("sendFreeUrgent").addEventListener("click", () => sendFreeMsg(true));
@@ -452,7 +462,7 @@
   function sendFreeMsg(urgent) {
     const t = $("freeText").value.trim();
     if (!t) return;
-    sendMsg(t, urgent ? "#cc0000" : "#1565c0", urgent);
+    sendMsg(t, urgent ? "#cc0000" : "#1565c0", urgent, false);
     $("freeText").value = "";
     $("freeText").focus();
   }
