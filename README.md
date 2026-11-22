@@ -9,7 +9,9 @@
 
 ## このツールのURL
 
-**https://tmdmy.github.io/tedx_roder/kanpe.html**
+**https://{tmdmy}.github.io/tedx_roder/kanpe.html**
+
+**→現在は停止しています**
 
 > 元のリポジトリは個人のアカウントにあります。団体で使うときは、先に[団体で使い始めるとき](docs/org-setup.md)を行い、この欄を団体のURLに書き換えてください。
 
