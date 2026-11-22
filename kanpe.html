@@ -266,7 +266,7 @@
     databaseURL: "https://tedxutsukubakanpe-default-rtdb.asia-southeast1.firebasedatabase.app"
   };
 
-  if (!firebaseConfig) {
+  if (!firebaseConfig || !firebaseConfig.databaseURL) {
     document.getElementById("configError").style.display = "block";
     return;
   }
@@ -295,11 +295,14 @@
     roomRef("presence/" + me).set(firebase.database.ServerValue.TIMESTAMP);
     roomRef("presence/" + me).onDisconnect().remove();
 
+    // Firebaseのルールで読み取りを拒否された場合は、その旨を画面に出す
+    let denied = false;
     roomRef("presence/" + other).on("value", (snap) => {
       if (snap.val() !== null) lastPeerSeen = Date.now();
-    });
+    }, () => { denied = true; onStatus(false, false, true); });
     watchTimer = setInterval(() => {
-      onStatus(Date.now() - lastPeerSeen < 9000);
+      if (denied) onStatus(false, false, true);
+      else onStatus(Date.now() - lastPeerSeen < 9000);
     }, 2000);
 
     db.ref(".info/connected").on("value", (snap) => {
@@ -319,8 +322,9 @@
       if (d && typeof d.text === "string") renderMsg(d.text, d.color, !!d.blink, !!d.fixed);
     });
 
-    startPresence("display", "ctrl", (alive, offline) => {
-      if (offline) setBadge("ネット接続なし", "ng");
+    startPresence("display", "ctrl", (alive, offline, denied) => {
+      if (denied) setBadge("Firebaseに拒否されました(ルールを確認)", "ng");
+      else if (offline) setBadge("ネット接続なし", "ng");
       else if (alive) setBadge("操作側と接続中", "ok");
       else setBadge("操作側の応答なし", "ng");
     });
@@ -420,8 +424,9 @@
       }
     });
 
-    startPresence("ctrl", "display", (alive, offline) => {
-      if (offline) setCtrlStatus("ネット接続なし", "ng");
+    startPresence("ctrl", "display", (alive, offline, denied) => {
+      if (denied) setCtrlStatus("Firebaseに拒否されました(ルールを確認)", "ng");
+      else if (offline) setCtrlStatus("ネット接続なし", "ng");
       else if (alive) setCtrlStatus("表示側と接続OK", "ok");
       else setCtrlStatus("表示側が見つかりません(表示側を開いてください)", "ng");
     });
