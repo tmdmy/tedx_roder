@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>遠隔カンペ</title>
+
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <style>
@@ -15,6 +16,7 @@
     color: #fff;
     overflow: hidden;
   }
+  /* 画面は3つ(モード選択/表示用/操作用)。.active が付いた1つだけが見える */
   .screen { display: none; height: 100%; }
   .screen.active { display: flex; }
 
@@ -41,6 +43,7 @@
   #modeSelect .hint { color: #999; font-size: 14px; text-align: center; line-height: 1.7; }
 
   /* ---------- 表示用(スピーカー足元) ---------- */
+  /* 背景色はメッセージごとにJS(renderMsg)から上書きされる */
   #display {
     flex-direction: column;
     align-items: center;
@@ -49,11 +52,13 @@
     background: #111;
     transition: background 0.2s;
   }
+  /* 緊急時の点滅。--bc(点滅色)はJSからセットされる。0.7s が点滅の周期 */
   #display.blink { animation: flash 0.7s steps(1) infinite; }
   @keyframes flash {
     0%   { background: var(--bc, #c62828); }
     50%  { background: #1a1a1a; }
   }
+  /* カンペ本文。font-size はここでは決めず、JSの fitText() が毎回計算する */
   #msgText {
     font-weight: 900;
     color: #fff;
@@ -64,6 +69,7 @@
     overflow-wrap: anywhere;
     line-break: anywhere;
   }
+  /* 最初のメッセージが届くまで出ている待機表示(ルーム名の案内) */
   #waitBox { text-align: center; }
   #waitBox .code {
     font-size: 12vw;
@@ -72,6 +78,7 @@
     color: #ffd54f;
   }
   #waitBox p { font-size: 22px; color: #ccc; margin-top: 16px; line-height: 1.8; }
+  /* 左上の接続状態バッジ。ok=緑 / ng=赤 / クラスなし=灰(接続中) */
   #connBadge {
     position: absolute;
     top: 12px;
@@ -126,10 +133,12 @@
     color: #fff;
     cursor: pointer;
   }
+  /* 接続状態の文字。ok=緑 / ng=赤 */
   #ctrlStatus { font-size: 15px; color: #aaa; }
   #ctrlStatus.ok { color: #81c784; }
   #ctrlStatus.ng { color: #e57373; }
 
+  /* 「現在の表示」欄。表示側に実際に出ている内容の確認用 */
   #nowShowing {
     background: #222;
     border-radius: 12px;
@@ -139,6 +148,7 @@
   }
   #nowShowing b { color: #fff; font-size: 20px; margin-left: 8px; }
 
+  /* 定型ボタンの並び。ボタンを増減しても自動で折り返す */
   .btnGrid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -154,6 +164,7 @@
     cursor: pointer;
   }
   .btnGrid button:active { transform: scale(0.96); }
+  /* ↓ 現在は未使用(各ボタンの色は HTML 側の style で直接指定している) */
   .b-go     { background: #2e7d32; }
   .b-info   { background: #1565c0; }
   .b-time   { background: #b8860b; }
@@ -183,6 +194,7 @@
   #sendFree { background: #1565c0; }
   #sendFreeUrgent { background: #c62828; }
   .sectionLabel { font-size: 13px; color: #888; margin-top: 4px; }
+  /* firebaseConfig が空のときだけ全画面で出るエラー表示 */
   #configError {
     display: none;
     position: fixed;
@@ -209,6 +221,7 @@
 </div>
 
 <!-- 表示用 -->
+<!-- waitBox(待機表示)と msgText(カンペ本文)は、最初のメッセージ受信時に入れ替わる -->
 <div id="display" class="screen bg-normal">
   <span id="connBadge">接続中...</span>
   <button id="fsBtn">全画面</button>
@@ -230,6 +243,16 @@
   </div>
   <div id="nowShowing">現在の表示:<b id="nowText">—</b></div>
 
+  <!--
+    ▼ 定型ボタンの書き方(増やす・変えるときはここの <button> を編集するだけでよい)
+      data-text  … 表示側に出す文字(空にすると「クリア」になる)
+      data-color … 表示側の背景色
+      style      … 操作画面でのボタン自体の色(data-color と同じ色にそろえる)
+      data-blink="1" を足すと、表示側で点滅する(現在使っているボタンはない)
+      ボタンの見出し(タグの中の文字)は操作画面用で、data-text と別にできる
+    定型ボタンのメッセージは、表示側で必ず1行・画面幅いっぱいで出る。
+    長い文言にするとその分文字が小さくなるので注意。
+  -->
   <div class="sectionLabel">進行指示</div>
   <div class="btnGrid">
     <button style="background:#cc0000" data-color="#cc0000" data-text="GO">GO</button>
@@ -252,6 +275,7 @@
     <button style="background:#073763" data-color="#073763" data-text="残り1分">残り1分</button>
   </div>
 
+  <!-- 自由入力は、表示側で文字数に応じて2〜4行に折り返される(定型ボタンとは別の扱い) -->
   <div class="sectionLabel">自由入力(Enterで通常送信)</div>
   <div class="freeRow">
     <input type="text" id="freeText" placeholder="自由メッセージ">
@@ -262,8 +286,11 @@
 
 <script>
 (function () {
+  // ▼ 接続先のFirebase。別のプロジェクトに移すときはここを書き換える。
+  //   このURLは公開されても問題ない値だが、誰が読み書きできるかは
+  //   Firebaseコンソール側の「ルール」で決まるので、そちらの設定に注意。
   const firebaseConfig = {
-    databaseURL: "https://tedxutsukubakanpe-default-rtdb.asia-southeast1.firebasedatabase.app"
+    databaseURL: "https://tedxutsukubakanpe-default-rtdb.asia-southeast1.firebasedatabase.app" //要書き換え
   };
 
   if (!firebaseConfig || !firebaseConfig.databaseURL) {
@@ -273,26 +300,36 @@
   firebase.initializeApp(firebaseConfig);
   const db = firebase.database();
 
-  let room = null;
-  let role = null;
+  // ---- この端末の状態 ----
+  let room = null;        // 接続中のルーム名(英大文字と数字のみ)
+  let role = null;        // "display"(表示用) か "ctrl"(操作用)
   let lastPeerSeen = 0;   // 相手側ハートビートを最後に受信した時刻(ローカル時計)
-  let watchTimer = null;
-  let hbTimer = null;
+  let watchTimer = null;  // 相手の生存を定期チェックするタイマー
+  let hbTimer = null;     // 自分のハートビートを送るタイマー
 
+  // ---- 小さな道具 ----
   const $ = (id) => document.getElementById(id);
+  // 指定した画面だけを見せる("modeSelect" / "display" / "ctrl")
   const show = (id) => {
     document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
     $(id).classList.add("active");
   };
+  // 今のルーム配下のデータの場所を返す。例: roomRef("current") → rooms/TEDX2026/current
   const roomRef = (path) => db.ref("rooms/" + room + "/" + path);
 
   /* ============ 共通: 死活監視 ============ */
   // 自分のハートビートを3秒ごとに書き込み、相手のハートビート更新イベントで生存確認
+  //   me / other … "display" か "ctrl"(自分と相手の役割名)
+  //   onStatus(alive, offline, denied) … 状態が変わるたびに呼ばれ、画面表示を更新する
+  //     alive   = 相手が生きている
+  //     offline = 自分がネットにつながっていない
+  //     denied  = Firebaseのルールで読み取りを拒否された
   function startPresence(me, other, onStatus) {
     hbTimer = setInterval(() => {
       roomRef("presence/" + me).set(firebase.database.ServerValue.TIMESTAMP);
     }, 3000);
     roomRef("presence/" + me).set(firebase.database.ServerValue.TIMESTAMP);
+    // タブを閉じたり回線が切れたりしたら、サーバー側で自分の印を自動で消してもらう
     roomRef("presence/" + me).onDisconnect().remove();
 
     // Firebaseのルールで読み取りを拒否された場合は、その旨を画面に出す
@@ -300,11 +337,13 @@
     roomRef("presence/" + other).on("value", (snap) => {
       if (snap.val() !== null) lastPeerSeen = Date.now();
     }, () => { denied = true; onStatus(false, false, true); });
+    // 2秒ごとに判定。相手の更新が9秒(=ハートビート3回分)途絶えたら「応答なし」とみなす
     watchTimer = setInterval(() => {
       if (denied) onStatus(false, false, true);
       else onStatus(Date.now() - lastPeerSeen < 9000);
     }, 2000);
 
+    // .info/connected は Firebase が用意している「自分がつながっているか」の特別な場所
     db.ref(".info/connected").on("value", (snap) => {
       if (!snap.val()) onStatus(false, true);
     });
@@ -317,6 +356,8 @@
     show("display");
     $("roomCode").textContent = room;
 
+    // メッセージが書き換わるたびに画面を描き直す。
+    // 開いた時点ですでにメッセージがあれば、それもすぐ表示される(再読み込みしても復帰する)
     roomRef("current").on("value", (snap) => {
       const d = snap.val();
       if (d && typeof d.text === "string") renderMsg(d.text, d.color, !!d.blink, !!d.fixed);
@@ -330,6 +371,9 @@
     });
   }
 
+  // メッセージ1件を画面に出す
+  //   text  … 表示する文字(空文字ならクリア=真っ暗)
+  //   color … 背景色  /  blink … 点滅するか  /  fixed … 定型ボタン由来か(1行表示にする)
   function renderMsg(text, color, blink, fixed) {
     const disp = $("display");
     $("waitBox").style.display = "none";
@@ -350,6 +394,7 @@
     }
   }
 
+  // 文字サイズを決める。単位の vw は「画面幅の何%か」(画面の大きさが違っても同じ見え方になる)
   function fitText(el, text, oneLine) {
     if (oneLine) {
       // 定型ボタン: 必ず1行のまま、画面幅いっぱいの最大サイズに(実測でフィット)
@@ -362,13 +407,15 @@
     }
     // 自由入力: 2〜4行に折り返して大きさを確保
     el.style.whiteSpace = "normal";
-    const len = [...text].length;
+    const len = [...text].length;   // 絵文字なども1文字として数える
+    // 文字数 → 行数の目安(ここの数字を変えると折り返し方が変わる)
     let lines;
     if (len <= 5) lines = 1;
     else if (len <= 16) lines = 2;
     else if (len <= 30) lines = 3;
     else lines = 4;
     const perLine = Math.ceil(len / lines);
+    // 3つの条件のうち一番小さいサイズを採用する
     const vw = Math.min(
       94 / perLine,        // 横幅に収まるサイズ
       28,                  // 上限
@@ -377,18 +424,22 @@
     el.style.fontSize = vw + "vw";
   }
 
+  // 表示側 左上のバッジを書き換える(cls: "ok" / "ng" / 省略)
   function setBadge(text, cls) {
     const b = $("connBadge");
     b.textContent = text;
     b.className = cls || "";
   }
 
+  // 全画面の切り替え(ブラウザの仕様上、ユーザーのクリック操作からしか全画面にできない)
   $("fsBtn").addEventListener("click", () => {
     if (!document.fullscreenElement) document.documentElement.requestFullscreen();
     else document.exitFullscreen();
   });
 
   /* ============ 操作用 ============ */
+  // roomName があれば(URLで指定されていれば)そのまま接続。
+  // なければ前回使ったルーム名を入力欄に入れておくだけで、接続ボタンを待つ
   function startCtrl(roomName) {
     role = "ctrl";
     show("ctrl");
@@ -401,10 +452,12 @@
     }
   }
 
+  // 入力欄のルーム名で接続する(接続中に別のルーム名へつなぎ直すこともできる)
   function connect() {
+    // ルーム名は大文字に統一し、英数字以外は取り除く(表示側と表記ゆれで食い違わないように)
     const r = $("codeInput").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
     if (r.length < 2) { setCtrlStatus("ルーム名は英数字2文字以上", "ng"); return; }
-    localStorage.setItem("kanpeRoom", r);
+    localStorage.setItem("kanpeRoom", r);   // 次回のためにこのブラウザに覚えさせる
 
     // 前のルームの監視を解除
     if (room) {
@@ -417,6 +470,8 @@
     room = r;
     setCtrlStatus("接続中...", "");
 
+    // 「現在の表示」欄を更新。自分が送った内容ではなくサーバー上の値を見ているので、
+    // ここに出ていれば送信は成功している
     roomRef("current").on("value", (snap) => {
       const d = snap.val();
       if (d && typeof d.text === "string") {
@@ -432,12 +487,15 @@
     });
   }
 
+  // メッセージを送る(= rooms/<ルーム名>/current を上書きする)。
+  // 履歴は残らず、常に最新の1件だけが保存される
   function sendMsg(text, color, blink, fixed) {
     if (!room) { setCtrlStatus("先にルームへ接続してください", "ng"); return; }
     roomRef("current").set({ text, color: color || null, blink: !!blink, fixed: !!fixed, ts: firebase.database.ServerValue.TIMESTAMP })
       .catch(() => setCtrlStatus("送信失敗 — ネットとFirebaseルールを確認", "ng"));
   }
 
+  // 操作側 上部の接続状態の文字を書き換える(cls: "ok" / "ng" / 空)
   function setCtrlStatus(text, cls) {
     const s = $("ctrlStatus");
     s.textContent = text;
@@ -445,11 +503,13 @@
   }
 
   /* ============ イベント ============ */
+  // モード選択画面のボタン
   $("btnDisplayMode").addEventListener("click", () => startDisplay(promptRoom()));
   $("btnCtrlMode").addEventListener("click", () => startCtrl());
   $("connectBtn").addEventListener("click", connect);
   $("codeInput").addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
 
+  // 表示用を選んだときにルーム名をたずねる(空欄やキャンセルなら前回の名前、なければ TEDX2026)
   function promptRoom() {
     const saved = localStorage.getItem("kanpeRoom") || "TEDX2026";
     const r = (prompt("ルーム名(操作側と同じにする):", saved) || saved)
@@ -458,12 +518,16 @@
     return r || "TEDX2026";
   }
 
+  // 定型ボタン: HTML側の data-text / data-color / data-blink をそのまま送る。
+  // .btnGrid 内のボタンすべてに自動で付くので、HTMLにボタンを足すだけで動く
   document.querySelectorAll(".btnGrid button").forEach(b => {
     b.addEventListener("click", () => sendMsg(b.dataset.text, b.dataset.color || null, b.dataset.blink === "1", true));
   });
+  // 自由入力
   $("sendFree").addEventListener("click", () => sendFreeMsg(false));
   $("sendFreeUrgent").addEventListener("click", () => sendFreeMsg(true));
   $("freeText").addEventListener("keydown", (e) => { if (e.key === "Enter") sendFreeMsg(false); });
+  // urgent=true なら赤背景で点滅、false なら青背景。送信後は入力欄を空にして続けて打てるようにする
   function sendFreeMsg(urgent) {
     const t = $("freeText").value.trim();
     if (!t) return;
