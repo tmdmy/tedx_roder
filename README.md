@@ -11,7 +11,7 @@
 
 **https://tmdmy.github.io/tedx_roder/kanpe.html**
 
-> リポジトリを団体のGitHubへ移すとURLが変わります。移したらこの欄を書き換えてください（手順は[管理者向けガイド](docs/admin.md)）。
+> 元のリポジトリは個人のアカウントにあります。団体で使うときは、団体のGitHubにコピーを作り、この欄を団体のURLに書き換えてください（手順は[管理者向けガイド](docs/admin.md#3-団体のgithubにコピーを作る)）。
 
 ## 読むページを選ぶ
 
@@ -20,7 +20,7 @@
 | 当日、カンペを出す・受ける係になった | **[当日の使い方](docs/usage.md)**（スクショ付き・5分） |
 | 新しいイベントで使う準備をする | **[イベント前の準備](docs/setup.md)** |
 | うまく動かない | **[困ったとき](docs/troubleshooting.md)** |
-| Firebaseを作り直す／団体のGitHubへ移す／ボタンを変える | [管理者向けガイド](docs/admin.md) |
+| Firebaseを作り直す／団体のGitHubにコピーを作る／ボタンを変える | [管理者向けガイド](docs/admin.md) |
 
 ## 30秒でわかる仕組み
 

@@ -96,33 +96,51 @@ Firebaseコンソール左上の歯車 →「ユーザーと権限」→「メ�
 
 ---
 
-## 3. 団体のGitHubへ移す
+## 3. 団体のGitHubにコピーを作る
 
-今は個人のアカウント（`tmdmy/tedx_roder`）にあります。団体のGitHub（Organization）へ移す手順です。履歴もそのまま移ります。
+元のリポジトリは個人のアカウント（`tmdmy/tedx_roder`）にあります。これを団体のGitHub（Organization）に**コピー**して、団体はそのコピーを使います。元のリポジトリはそのまま残ります。
 
-**準備**：移す人が、団体のOrganizationでリポジトリを作れる権限を持っていること。
+この作業は**団体側の人**が行います。GitHubの「Fork（フォーク）」という機能を使います。ボタンを押すだけで、履歴ごとコピーできます。
 
-1. GitHubで[このリポジトリ](https://github.com/tmdmy/tedx_roder)を開く
-2. 上の「Settings」→ 一番下までスクロールして「Danger Zone」
-3. 「Transfer」（Transfer ownership）を押す
-4. 移し先に団体のOrganization名を選び、画面の指示どおり確認の文字を入力して実行する
-5. 移した先のリポジトリで「Settings」→ 左の「Pages」を開く
-   - 「Branch」が `main`、フォルダが `/ (root)` になっていることを確認。なっていなければ選んで「Save」
-   - 数分待つと、ページの上に新しいURLが出ます
-6. **ツールのURLが変わります。** 新しいURLはこの形です
+**準備**：作業する人が、団体のOrganizationでリポジトリを作れる権限を持っていること。
+
+### コピーを作る
+
+1. GitHubにログインして、[元のリポジトリ](https://github.com/tmdmy/tedx_roder)を開く
+2. 右上の「Fork」を押す
+3. 「Owner」で**団体のOrganization名**を選ぶ（自分の名前のままにしない）
+4. 「Repository name」はそのままでも、変えてもよい（例：`kanpe`）。ここで決めた名前がURLの一部になります
+5. 「Create fork」を押す。団体のGitHubにコピーができます
+
+### URLで開けるようにする（GitHub Pages）
+
+コピーしただけでは、まだツールのURLがありません。
+
+1. コピーしたリポジトリで、上の「Settings」→ 左の「Pages」を開く
+2. 「Branch」で `main` を選び、フォルダは `/ (root)` のまま「Save」を押す
+3. 数分待ってページを再読み込みすると、上のほうに新しいURLが出ます。ツールのURLはこの形になります
 
    ```
-   https://団体のOrganization名.github.io/tedx_roder/kanpe.html
+   https://団体のOrganization名.github.io/リポジトリ名/kanpe.html
    ```
 
-7. [README](../README.md) の「このツールのURL」と、このページの中の `tmdmy` を新しいものに書き換える
-8. 新しいURLで動作確認をする
+4. そのURLを開いて、モード選択の画面が出ることを確認する
 
-注意：
+### 説明書のURLを書き換える
 
-- 古いURL（`tmdmy.github.io/...`）は使えなくなります。ブックマークや配ったURLは作り直してください
-- リポジトリ名も変えたい場合（例：`kanpe`）は「Settings」の一番上の「Repository name」で変えられます。URLの `tedx_roder` の部分も一緒に変わります
-- Firebaseはそのままで動きます。移す必要はありません（ただし[団体の人が入れる状態](#ほかの人も入れるようにする)にはしておく）
+コピーした説明書には、元のURL（`tmdmy.github.io/...`）が書かれたままです。団体のURLに直します。
+
+1. コピーしたリポジトリで `README.md` を開き、右上の鉛筆マーク（Edit）を押す
+2. 「このツールのURL」の下のURLを、新しいURLに書き換える
+3. その下の「元のリポジトリは…」で始まる注意書きの1行は消してよい
+4. 「Commit changes」を押す
+5. [イベント前の準備の「動くかどうか確かめる」](setup.md#1-動くかどうか確かめる一番大事)を、新しいURLで行う
+
+### 注意
+
+- **これ以降、団体の人は団体のURLだけを使ってください。** 元のURL（`tmdmy.github.io/...`）は個人のものなので、いつか消えるかもしれません
+- Firebaseは同じものを共有します。コピーしてもそのまま動きます。ただし[団体の人が入れる状態](#ほかの人も入れるようにする)にしておくか、[団体用に作り直して](#2-firebaseを新しく作る)ください
+- 元のリポジトリが更新されたとき、コピー側のリポジトリの上に出る「Sync fork」→「Update branch」を押すと、更新を取り込めます。自分たちで `README.md` や `kanpe.html` を書き換えた箇所とぶつかった場合は、取り込まずにそのままでかまいません
 
 ---
 
